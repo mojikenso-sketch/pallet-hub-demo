@@ -2378,7 +2378,15 @@ test("DEMO: no real company / people / URLs left anywhere in the demo folder", (
   const w = {};
   new Function("window", fs.readFileSync(path.join(ROOT, "docs/config.js"), "utf8"))(w);
   const own = w.PALLET_CONFIG.apiUrl;
-  const hits = walk(ROOT).filter(f => REAL_NAMES_RE.test(fs.readFileSync(f, "utf8").split(own).join("")));
+  // docs/config.js may also hold the shared Trial Gate deployment URL (DEMO_TRIAL.gateUrl):
+  // only Apps Script /exec deployment URLs are allowlisted there, everything else stays strict.
+  const cfgFile = path.join(ROOT, "docs", "config.js");
+  const DEPLOY_RE = /https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/g;
+  const hits = walk(ROOT).filter(f => {
+    let text = fs.readFileSync(f, "utf8").split(own).join("");
+    if (f === cfgFile) text = text.replace(DEPLOY_RE, "");
+    return REAL_NAMES_RE.test(text);
+  });
   assert.deepStrictEqual(hits, []);
 });
 
