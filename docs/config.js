@@ -5,7 +5,7 @@ window.DEMO_CONTACT = "สนใจใช้งานจริง ติดต�
 // ทดลองใช้ 5 ชั่วโมงต่อผู้เข้าชม (นับตาม IP + อุปกรณ์) — gateUrl = URL /exec ของโปรเจกต์ Apps Script "Trial Gate"
 // (แทนที่ PASTE_TRIAL_GATE_URL_HERE; ถ้ายังไม่ใส่หรือเชื่อมต่อไม่ได้ เว็บยังใช้งานได้ตามปกติ)
 window.DEMO_TRIAL = {
-  gateUrl: 'PASTE_TRIAL_GATE_URL_HERE',
+  gateUrl: 'https://script.google.com/macros/s/AKfycbwQzhsI1OIN-YUumWLE0n1150c9hTPC--Npm19k44AIDjneJfn2SFXnTYxsW9OGbO0/exec',
   app: 'pallet',
   hours: 5,
   contact: window.DEMO_CONTACT,
