@@ -210,6 +210,7 @@ function createGas() {
           timeBased() { t.timeBased = true; return b; },
           everyMinutes(n) { assert.ok([1, 5, 10, 15, 30].includes(n), "everyMinutes(" + n + ")"); t.everyMinutes = n; return b; },
           everyDays(n) { assert.ok(n >= 1, "everyDays(" + n + ")"); t.everyDays = n; return b; },
+          everyHours(n) { assert.ok([1, 2, 4, 6, 8, 12].includes(n), "everyHours(" + n + ")"); t.everyHours = n; return b; },
           atHour(h) { assert.ok(h >= 0 && h <= 23, "atHour(" + h + ")"); t.atHour = h; return b; },
           create() { assert.ok(t.timeBased, "time-based"); (state.triggers = state.triggers || []).push(t); return { getUniqueId: () => t.id }; }
         };
@@ -220,12 +221,16 @@ function createGas() {
   return { gas, state };
 }
 
-function loadCode(gas) {
+// demoLocks: keep the slim-demo locks (DEMO_LOCKED_ACTIONS) on. The engine
+// regression tests switch them off to exercise every action of the full engine.
+function loadCode(gas, { demoLocks = false } = {}) {
   const ctx = vm.createContext(Object.assign({}, gas));
   // Same order as the Apps Script project files: Code.gs, then Demo.gs.
   for (const f of ["Code.gs", "Demo.gs"]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, "apps-script", f), "utf8"), ctx, { filename: f });
   }
+  assert.strictEqual(ctx.DEMO_LOCK_PREMIUM, true, "the deployed demo locks the full-version features");
+  if (!demoLocks) ctx.DEMO_LOCK_PREMIUM = false;
   return ctx;
 }
 
@@ -1975,6 +1980,7 @@ test("docs JS files parse (new Function); no login UI; reset password never stor
   const cfg = {};
   new Function("window", fs.readFileSync(path.join(ROOT, "docs/config.js"), "utf8"))(cfg);
   assert.deepStrictEqual(Object.keys(cfg.PALLET_CONFIG), ["apiUrl"]);
+  new Function(fs.readFileSync(path.join(ROOT, "docs/assets/trial-gate.js"), "utf8"));
   assert.ok(cfg.PALLET_CONFIG.apiUrl === "" || cfg.PALLET_CONFIG.apiUrl === "PASTE_DEPLOYED_EXEC_URL_HERE" || /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(cfg.PALLET_CONFIG.apiUrl));
   const app = fs.readFileSync(path.join(ROOT, "docs/assets/app.js"), "utf8");
   assert.ok(!/api\.php|X-User|localStorage\.setItem\([^)]*[Pp]ass/.test(app));
@@ -1990,7 +1996,7 @@ test("docs JS files parse (new Function); no login UI; reset password never stor
   assert.ok(!/pallet_RC[^\n]*logs/.test(app));
   assert.ok(app.includes("ผู้ทำรายการ / By"));
   const html = fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8");
-  assert.ok(html.includes('assets/app.js?v=25"'));
+  assert.ok(html.includes('assets/app.js?v=26"'));
   assert.ok(!html.includes('id="loginScreen"') && !html.includes('data-page="account"') && !html.includes("umLogout"));
   assert.ok(html.includes('id="userChip"') && html.includes('data-page="logs"'));
   assert.ok(/<link rel="preconnect" href="https:\/\/script\.google\.com"/.test(html) && /script\.googleusercontent\.com/.test(html));
@@ -2003,10 +2009,12 @@ const DEMO_PW = "demo1234";
 // so this file itself stays clean for a plain grep).
 const REAL_NAMES_RE = new RegExp(Buffer.from("4LmB4LiZ4LmH4LibfOC4meC4tOC4p+C4leC4o+C4tOC4i+C4suC4ouC4quC5jHzguYDguJfguJ7guKfguLHguJLguJnguLJ84LmE4LiX4Lii4Lij4LmI4Lin4Lih4LmD4LiIfFxiS1JHXGJ8XGJLaW5nXGJ8VGhlcHdhdGFuYXxcYk5hcFxifE5hcE51dHJpfHdhdGFuYXRoZXB8a3JvZ3JvdXB84Lij4Liy4LiK4Lia4Li44Lij4Li1fEFLZnljYnx3ZWJob29rXC5vZmZpY2U=", "base64").toString("utf8"), "i");
 const DAY_MS = 86400000;
+const HOUR_MS = 3600000;
+const MIN_MS = 60000;
 // A brand-new project with setupDemo() run once (optionally at a pinned "now").
 function demoInstance(nowMs) {
   const g = createGas();
-  const c = loadCode(g.gas);
+  const c = loadCode(g.gas, { demoLocks: true });
   if (nowMs != null) setNow(c, nowMs);
   const setup = c.setupDemo();
   const G = (action, params = {}) => JSON.parse(c.doGet({ parameter: Object.assign({ action }, params) }).getContent());
@@ -2065,7 +2073,7 @@ test("DEMO seed plan (plain data): valid types / sizes / departments / actors / 
   assert.ok(!REAL_NAMES_RE.test(JSON.stringify([plan, ctx.DEMO_ACTORS, ctx.DEMO_COMPANY, ctx.DEMO_DEPTS])));
 });
 
-test("DEMO setupDemo: spreadsheet, public password, seed, DEMO_LAST_RESET, exactly one daily demoAutoReset trigger (idempotent)", () => {
+test("DEMO setupDemo: spreadsheet, public password, seed, DEMO_LAST_RESET, exactly one hourly demoAutoReset trigger (idempotent)", () => {
   const D = demoInstance();
   const props = D.g.state.props;
   assert.strictEqual(props.PALLET_RESET_PASSWORD, DEMO_PW);
@@ -2074,14 +2082,20 @@ test("DEMO setupDemo: spreadsheet, public password, seed, DEMO_LAST_RESET, exact
   assert.strictEqual(D.g.state.created, 1);
   const trg = D.g.state.triggers.filter(t => t.handler === "demoAutoReset");
   assert.strictEqual(trg.length, 1);
-  assert.strictEqual(trg[0].everyDays, 1);
-  assert.strictEqual(trg[0].atHour, 7);
+  assert.strictEqual(trg[0].everyHours, 1);
+  assert.ok(trg[0].everyDays == null && trg[0].atHour == null, "hourly, not daily");
+  assert.strictEqual(ctx.DEMO_RESET_HOURS, 5);
+  assert.strictEqual(D.setup.trigger.everyHours, 1);
   assert.strictEqual(D.setup.demoPassword, DEMO_PW);
   assert.strictEqual(D.setup.seeded.movements, ctx.DEMO_SEED_PLAN.length);
   // keepWarm trigger is left alone; running setupDemo again keeps one demo trigger and one spreadsheet
   D.c.installKeepWarmTrigger();
+  // an old daily trigger (previous 3-day edition) is replaced by the hourly one
+  D.g.state.triggers.push({ handler: "demoAutoReset", id: "old-daily", timeBased: true, everyDays: 1, atHour: 7 });
   D.c.setupDemo();
-  assert.strictEqual(D.g.state.triggers.filter(t => t.handler === "demoAutoReset").length, 1);
+  const after = D.g.state.triggers.filter(t => t.handler === "demoAutoReset");
+  assert.strictEqual(after.length, 1);
+  assert.strictEqual(after[0].everyHours, 1);
   assert.strictEqual(D.g.state.triggers.filter(t => t.handler === "keepWarm").length, 1);
   assert.strictEqual(D.g.state.created, 1);
   assert.strictEqual(D.rows("movements").length, ctx.DEMO_SEED_PLAN.length, "re-seeded, not appended");
@@ -2163,10 +2177,15 @@ test("DEMO seeding works at any time of day (before 07:00 the fixed days shift b
   }
 });
 
-test("DEMO reset_data (UI button, public password) restores the demo seed instead of emptying; departments restored; schedule restarts", () => {
+test("DEMO reset_data is locked in the API (full version); the engine reset still restores the demo seed; schedule restarts", () => {
   const D = demoInstance();
   const before = okData(D.G("bootstrap"));
   okData(D.P(Object.assign({ action: "receive", type_id: 1, size: "1.2x1.2", qty: 500 }, AT)));
+  const dump = JSON.stringify(D.rows("movements"));
+  err(D.P({ action: "reset_data", resetPassword: DEMO_PW }), /^ฟีเจอร์นี้มีในเวอร์ชันเต็ม$/);
+  assert.strictEqual(JSON.stringify(D.rows("movements")), dump, "nothing reset through the API");
+  // the reset engine itself (owner functions / regression) still restores the seed
+  D.c.DEMO_LOCK_PREMIUM = false;
   const dept = before.departments[0];
   okData(D.P({ action: "dept_delete", id: dept.id, resetPassword: DEMO_PW }));
   okData(D.P({ action: "dept_save", name: "ฝ่ายทดลองเพิ่ม", resetPassword: DEMO_PW }));
@@ -2183,39 +2202,88 @@ test("DEMO reset_data (UI button, public password) restores the demo seed instea
   assert.strictEqual(after.demo.lastReset, D.g.state.props.DEMO_LAST_RESET);
   const logs = okData(D.P({ action: "logs", resetPassword: DEMO_PW })).items;
   assert.ok(logs[0].actor === "ผู้ทดลองระบบ" && /ระบบทดลอง \(Demo\)/.test(logs[0].detail), "reset logged with the visitor's name");
-  // a new write after the reset continues the numbering cleanly
   const w = okData(D.P(Object.assign({ action: "receive", type_id: 2, size: "1.1x1.1", qty: 3 }, AT)));
   assert.ok(/^RC-\d{6}-\d{4}$/.test(w.doc_no));
 });
 
-test("DEMO demoAutoReset: skipped before 3 days, re-seeds at the daily 07:xx run on day 3 (tolerance), info has next reset", () => {
-  const t0 = Date.parse(TODAY + "T14:20:00+07:00") - 5 * DAY_MS; // setup at 14:20 five days "ago"
+test("DEMO slim: full-version actions are refused by the API (GET and POST, before any password); usable flows still work", () => {
+  const D = demoInstance();
+  const LOCKED = ["damage", "repair_start", "repair_done", "scrap", "movement_update", "movement_delete", "repair_update",
+    "repair_delete", "dept_save", "dept_delete", "reset_data", "export", "logs_export"];
+  assert.deepStrictEqual([...D.c.DEMO_LOCKED_ACTIONS].sort(), [...LOCKED].sort());
+  const snap = () => JSON.stringify(["movements", "repairs", "departments", "audit_logs"].map(n => D.rows(n)));
+  const s0 = snap();
+  const tk = okData(D.G("repairs")).items.find(i => i.stage === "damaged");
+  const mv = okData(D.G("history", { from: ctx.shiftDate_(TODAY, -40), to: TODAY })).items[0];
+  const bodies = {
+    damage: Object.assign({ type_id: 1, size: "1.2x1.2", qty: 1, cause: "ทดสอบ" }, AT),
+    repair_start: { id: tk.id, ticket_no: tk.ticket_no }, repair_done: { id: tk.id, ticket_no: tk.ticket_no }, scrap: { id: tk.id, ticket_no: tk.ticket_no },
+    movement_update: { id: mv.id, doc_no: mv.doc_no, qty: 1 }, movement_delete: { id: mv.id, doc_no: mv.doc_no },
+    repair_update: { id: tk.id, ticket_no: tk.ticket_no, note: "x" }, repair_delete: { id: tk.id, ticket_no: tk.ticket_no },
+    dept_save: { name: "ฝ่ายใหม่" }, dept_delete: { id: 1 }
+  };
+  for (const a of LOCKED) {
+    // with the right password, a wrong one or none: always the same locked answer
+    for (const extra of [{ resetPassword: DEMO_PW }, { resetPassword: "wrong" }, {}]) {
+      const r = D.P(Object.assign({ action: a }, bodies[a] || {}, extra));
+      assert.deepStrictEqual([r.ok, r.error, r.code], [false, "ฟีเจอร์นี้มีในเวอร์ชันเต็ม", "DEMO_LOCKED"], a);
+    }
+    const r2 = D.P(Object.assign({ action: a }, bodies[a] || {}), "");
+    assert.strictEqual(r2.error, "ฟีเจอร์นี้มีในเวอร์ชันเต็ม", a + " without a name");
+    const g = D.G(a);
+    assert.deepStrictEqual([g.ok, g.error], [false, "ฟีเจอร์นี้มีในเวอร์ชันเต็ม"], "GET " + a);
+  }
+  // a damaged return opens a repair ticket (repair workflow = full version)
+  err(D.P(Object.assign({ action: "return", department: "ฝ่ายผลิต", type_id: 1, size: "1.2x1.2", qty: 1, condition: "damaged", cause: "x" }, AT)), /^ฟีเจอร์นี้มีในเวอร์ชันเต็ม$/);
+  assert.strictEqual(snap(), s0, "nothing written, no audit row");
+  assert.ok(!Object.keys(D.g.state.cache).some(k => /FAILURES/.test(k)), "locked calls never count as wrong passwords");
+  // usable: reads, dashboard, search, logs (demo password), receive / issue / return (good)
+  okData(D.G("dashboard", { days: 14 }));
+  okData(D.G("history", { q: "ไลน์ผลิต", act: "issue" }));
+  okData(D.G("batch", { reads: JSON.stringify([{ action: "bootstrap" }, { action: "repairs" }]) }));
+  okData(D.P({ action: "logs", resetPassword: DEMO_PW }));
+  okData(D.P(Object.assign({ action: "receive", type_id: 1, size: "1.2x1.2", qty: 5 }, AT)));
+  okData(D.P(Object.assign({ action: "issue", department: "ฝ่ายผลิต", type_id: 1, size: "1.2x1.2", qty: 2 }, AT)));
+  okData(D.P(Object.assign({ action: "return", department: "ฝ่ายผลิต", type_id: 1, size: "1.2x1.2", qty: 2, condition: "good" }, AT)));
+  okData(D.P(Object.assign({ action: "return", department: "ฝ่ายผลิต", type_id: 1, size: "1.2x1.2", qty: 1 }, AT)));
+  okData(D.G("demo_info"));
+});
+
+test("DEMO demoAutoReset (fake clock): no reset before 5 h (4h59), reset at 5 h+; nextReset = lastReset + 5 h", () => {
+  const t0 = Date.parse(TODAY + "T14:20:00+07:00") - 2 * DAY_MS;
   const D = demoInstance(t0);
   const info0 = okData(D.G("demo_info"));
   assert.strictEqual(info0.lastReset, new Date(t0).toISOString());
-  // due = t0 + 3 d - 6 h = day+3 08:20 -> first 07:00 run after that is day+4 07:00 (Bangkok)
-  const day4 = Date.parse(ctx.shiftDate_(bkkParts(t0).date, 4) + "T07:00:00+07:00");
-  assert.strictEqual(info0.nextReset, new Date(day4).toISOString());
+  assert.strictEqual(info0.nextReset, new Date(t0 + 5 * HOUR_MS).toISOString());
+  assert.strictEqual(info0.intervalHours, 5);
   assert.strictEqual(okData(D.G("bootstrap")).demo.nextReset, info0.nextReset);
   // write something so a re-seed is visible
-  setNow(D.c, t0 + DAY_MS);
-  okData(D.P(Object.assign({ action: "receive", type_id: 1, size: "1.2x1.2", qty: 7 }, { date: bkkParts(t0 + DAY_MS).date, time: "09:00" })));
-  for (const at of [t0 + DAY_MS, day4 - DAY_MS + 5 * 60000, day4 - DAY_MS + 59 * 60000]) {
+  setNow(D.c, t0 + HOUR_MS);
+  okData(D.P(Object.assign({ action: "receive", type_id: 1, size: "1.2x1.2", qty: 7 }, { date: bkkParts(t0 + HOUR_MS).date, time: bkkParts(t0 + HOUR_MS).hm })));
+  // the hourly trigger runs: nothing happens up to 4 h 59 min (also 4 h 59 min 59 s)
+  for (const at of [t0 + HOUR_MS, t0 + 2 * HOUR_MS, t0 + 3 * HOUR_MS, t0 + 4 * HOUR_MS, t0 + 4 * HOUR_MS + 59 * MIN_MS, t0 + 5 * HOUR_MS - 1000]) {
     setNow(D.c, at);
     const r = D.c.demoAutoReset();
-    assert.strictEqual(r.reset, false, "skipped at " + new Date(at).toISOString());
+    assert.strictEqual(r.reset, false, "skipped at +" + ((at - t0) / MIN_MS) + " min");
   }
   assert.strictEqual(D.rows("movements").length, ctx.DEMO_SEED_PLAN.length + 1);
-  setNow(D.c, day4 + 5 * 60000); // trigger fires at 07:05
+  const t1 = t0 + 5 * HOUR_MS + 3 * MIN_MS; // hourly run just after 5 h
+  setNow(D.c, t1);
   const r = D.c.demoAutoReset();
   assert.strictEqual(r.reset, true);
   assert.strictEqual(D.rows("movements").length, ctx.DEMO_SEED_PLAN.length);
-  assert.strictEqual(D.g.state.props.DEMO_LAST_RESET, new Date(day4 + 5 * 60000).toISOString());
-  // from now on every third 07:xx run resets (07:05 + 3 d - 6 h <= next 07:00 + 3 d)
-  const next = okData(D.G("demo_info")).nextReset;
-  assert.strictEqual(next, new Date(day4 + 3 * DAY_MS).toISOString());
-  setNow(D.c, day4 + 2 * DAY_MS + 50 * 60000); assert.strictEqual(D.c.demoAutoReset().reset, false);
-  setNow(D.c, day4 + 3 * DAY_MS + 2 * 60000); assert.strictEqual(D.c.demoAutoReset().reset, true);
+  assert.strictEqual(D.g.state.props.DEMO_LAST_RESET, new Date(t1).toISOString());
+  assert.strictEqual(okData(D.G("demo_info")).nextReset, new Date(t1 + 5 * HOUR_MS).toISOString());
+  // the re-seed looks fresh: newest entry within the last 5 h, nothing in the future
+  D.c.resetRequest_("");
+  const moved = D.c.table_("movements").rows.map(x => x.moved_at).sort();
+  D.c.REQ_ = null;
+  const nowB = bkkParts(t1), newest = moved[moved.length - 1];
+  assert.ok(newest <= nowB.date + " " + nowB.hm + ":00", "future entry " + newest);
+  assert.ok(Date.parse(newest.replace(" ", "T") + "+07:00") >= t1 - 5 * HOUR_MS, "fresh newest entry " + newest);
+  // next cycle: 4h59 later no, 5h later yes (every 5 hours, not every 3 days)
+  setNow(D.c, t1 + 4 * HOUR_MS + 59 * MIN_MS); assert.strictEqual(D.c.demoAutoReset().reset, false);
+  setNow(D.c, t1 + 5 * HOUR_MS); assert.strictEqual(D.c.demoAutoReset().reset, true);
   // no DEMO_LAST_RESET at all -> resets on the next run
   delete D.g.state.props.DEMO_LAST_RESET;
   assert.strictEqual(okData(D.G("demo_info")).nextReset, null);
@@ -2224,7 +2292,7 @@ test("DEMO demoAutoReset: skipped before 3 days, re-seeds at the daily 07:xx run
 
 test("DEMO resetDemoNow: takes the script lock, works with stale data, leaves one reset row in the log", () => {
   const D = demoInstance();
-  okData(D.P(Object.assign({ action: "damage", type_id: 1, size: "1.2x1.2", qty: 1, cause: "ทดสอบ" }, AT)));
+  okData(D.P(Object.assign({ action: "receive", type_id: 1, size: "1.2x1.2", qty: 1 }, AT)));
   const locks = D.g.state.locks;
   const r = D.c.resetDemoNow();
   assert.strictEqual(r.reset, true);
@@ -2240,11 +2308,13 @@ test("DEMO frontend: banner + DEMO_CONTACT + placeholder exec URL + demo passwor
   const cfgSrc = fs.readFileSync(path.join(ROOT, "docs/config.js"), "utf8");
   const w = {};
   new Function("window", cfgSrc)(w);
-  assert.strictEqual(w.PALLET_CONFIG.apiUrl, "PASTE_DEPLOYED_EXEC_URL_HERE");
+  // placeholder, or the demo's own deployed web app
+  assert.ok(w.PALLET_CONFIG.apiUrl === "PASTE_DEPLOYED_EXEC_URL_HERE" || /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(w.PALLET_CONFIG.apiUrl));
   assert.ok(/Fastwork/.test(w.DEMO_CONTACT) && /LINE/.test(w.DEMO_CONTACT));
   const app = fs.readFileSync(path.join(ROOT, "docs/assets/app.js"), "utf8");
   const html = fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8");
   assert.ok(html.includes('id="demoBanner"') && html.includes("ระบบทดลองใช้ (Demo)"));
+  assert.ok(/รีเซ็ตกลับเป็นค่าเริ่มต้นทุก 5 ชั่วโมง/.test(html) && /แต่ละคนใช้งานได้ 5 ชั่วโมง/.test(html) && !/ทุก 3 วัน/.test(html + app));
   assert.ok(app.includes("PASTE_DEPLOYED_EXEC_URL_HERE") && app.includes("ยังไม่ได้ตั้งค่า API"));
   assert.ok(app.includes("window.DEMO_CONTACT") && html.includes("รีเซ็ตครั้งถัดไป") && app.includes("nextReset"));
   assert.ok(app.includes("บัญชีทดลอง") && app.includes("demo1234"));
@@ -2255,9 +2325,60 @@ test("DEMO frontend: banner + DEMO_CONTACT + placeholder exec URL + demo passwor
   assert.ok(fs.existsSync(path.join(ROOT, "docs/.nojekyll")));
 });
 
+test("DEMO trial gate: DEMO_TRIAL in config.js; shared trial-gate.js (unchanged copy) on every page after config.js", () => {
+  const w = {};
+  new Function("window", fs.readFileSync(path.join(ROOT, "docs/config.js"), "utf8"))(w);
+  const t = w.DEMO_TRIAL;
+  assert.ok(t && typeof t === "object", "DEMO_TRIAL");
+  assert.ok(t.gateUrl === "PASTE_TRIAL_GATE_URL_HERE" || /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(t.gateUrl), t.gateUrl);
+  assert.strictEqual(t.app, "pallet");
+  assert.strictEqual(t.hours, 5);
+  assert.strictEqual(t.contact, w.DEMO_CONTACT);
+  assert.ok(/4,900 บาท\/ปี/.test(t.priceHtml) && /12,900 บาท/.test(t.priceHtml), t.priceHtml);
+  const gate = fs.readFileSync(path.join(ROOT, "docs/assets/trial-gate.js"), "utf8");
+  const shared = path.join(ROOT, "..", "TrialGate", "client", "trial-gate.js");
+  if (fs.existsSync(shared)) assert.strictEqual(gate, fs.readFileSync(shared, "utf8"), "trial-gate.js must be an unchanged copy");
+  assert.ok(gate.includes("window.DEMO_TRIAL") && gate.includes("demo-trial-badge"));
+  const pages = fs.readdirSync(path.join(ROOT, "docs")).filter(f => f.endsWith(".html"));
+  assert.ok(pages.length >= 1);
+  for (const f of pages) {
+    const html = fs.readFileSync(path.join(ROOT, "docs", f), "utf8");
+    const iCfg = html.search(/<script src="config\.js[^"]*"/), iGate = html.search(/<script src="assets\/trial-gate\.js[^"]*"/), iApp = html.search(/<script src="assets\/app\.js/);
+    assert.ok(iCfg !== -1 && iGate > iCfg, f + ": trial-gate.js after config.js");
+    assert.ok(iApp === -1 || iApp > iGate, f + ": before app.js");
+  }
+  // the badge sits bottom-left: the page leaves room for it (CSS only)
+  const html = fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8");
+  assert.ok(/\.sidebar\{padding-bottom:\d+px\}/.test(html) && /\.main\{padding-bottom:\d+px\}/.test(html));
+});
+
+test("DEMO slim frontend: full-version buttons stay visible with 🔒 and open one shared 'เวอร์ชันเต็ม' dialog", () => {
+  const app = fs.readFileSync(path.join(ROOT, "docs/assets/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8");
+  assert.ok(app.includes("const LOCKED_MSG = 'ฟีเจอร์นี้มีในเวอร์ชันเต็ม'") && /function showLocked\(name\)/.test(app));
+  assert.ok(/🔒 \$\{LOCKED_MSG\} — \$\{esc\(DEMO_CONTACT\)\}/.test(app), "message + contact");
+  assert.ok(/document\.addEventListener\('click', e => \{\s*const el = e\.target\.closest\('\[data-locked\]'\);[\s\S]*?stopImmediatePropagation\(\);[\s\S]*?\}, true\);/.test(app), "one capture handler");
+  assert.strictEqual((app.match(/function showLocked\(/g) || []).length, 1);
+  // locked pages can't be opened by URL either
+  assert.ok(/const LOCKED_PAGES = \{ damage: 'แจ้งชำรุด', settings: 'ตั้งค่าฝ่าย' \}/.test(app) && /if \(LOCKED_PAGES\[p\]\)/.test(app));
+  assert.ok(/data-page="damage" class="locked" data-locked="[^"]+"><i[^>]*><\/i><span>แจ้งชำรุด 🔒/.test(html));
+  assert.ok(/data-page="settings" class="locked" data-locked="[^"]+"><i[^>]*><\/i><span>ตั้งค่าฝ่าย 🔒/.test(html));
+  // every locked control: data-locked + 🔒
+  for (const re of [/id="resetBtn" \$\{lockAttr\([^)]*\)\}>[^<]*🔒/, /id="hCsv" \$\{lockAttr/, /id="lCsv" \$\{lockAttr/, /data-medit="\$\{m\.id\}" \$\{lockAttr/, /data-mdel="\$\{m\.id\}" \$\{lockAttr/,
+    /data-redit="\$\{r\.id\}" \$\{lockAttr/, /data-rdel="\$\{r\.id\}" \$\{lockAttr/, /data-rp="repair_start"[^>]*\$\{lockAttr/, /data-rp="repair_done"[^>]*\$\{lockAttr/, /data-rp="scrap"[^>]*\$\{lockAttr/,
+    /data-cond="damaged" \$\{lockAttr/, /href="#damage" class="btn btn-bad locked" \$\{lockAttr/]) assert.ok(re.test(app), String(re));
+  // still usable: dashboard, stock, history search, receive / issue / return (good), logs, repair board (view)
+  for (const p of ["receive", "issue", "return", "stock", "history", "dashboard", "logs", "repair"]) assert.ok(!new RegExp('data-page="' + p + '"[^>]*data-locked').test(html), p);
+  assert.ok(!/data-cond="good"[^>]*data-locked/.test(app) && /\$\('#hGo'\)\.onclick = load/.test(app));
+});
+
 test("DEMO: no real company / people / URLs left anywhere in the demo folder", () => {
   const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.name === ".git" ? [] : e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);
-  const hits = walk(ROOT).filter(f => REAL_NAMES_RE.test(fs.readFileSync(f, "utf8")));
+  // the demo's own deployed web app URL (docs/config.js apiUrl) is allowed
+  const w = {};
+  new Function("window", fs.readFileSync(path.join(ROOT, "docs/config.js"), "utf8"))(w);
+  const own = w.PALLET_CONFIG.apiUrl;
+  const hits = walk(ROOT).filter(f => REAL_NAMES_RE.test(fs.readFileSync(f, "utf8").split(own).join("")));
   assert.deepStrictEqual(hits, []);
 });
 

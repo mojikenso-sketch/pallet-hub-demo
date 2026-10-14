@@ -37,6 +37,16 @@
     .demo-acc{margin:12px 0 0;padding:10px 14px;border-radius:12px;background:#fff8e1;border:1px dashed #F5B400;font-size:13px;line-height:1.6;color:var(--ink)}
     .demo-acc b{color:var(--brand2)} .demo-acc code{background:#fff;padding:1px 6px;border-radius:6px;font-weight:600}
     @media (max-width:640px){.demo-banner{font-size:12.5px;padding:8px 12px;border-radius:12px}.demo-banner .db-main{flex-basis:100%}}
+    /* DEMO: full-version features (🔒) + room for the trial badge (bottom-left, from trial-gate.js) */
+    .locked{opacity:.62;filter:grayscale(.35)}
+    .locked:hover{opacity:.85}
+    .nav a.locked{opacity:.6}
+    .lock-card{text-align:center}
+    .lock-card .lk-big{font-size:42px;line-height:1;margin:4px 0 10px}
+    .lock-card .lk-contact{margin-top:10px;font-weight:600;color:var(--navy)}
+    .lock-card .lk-price{margin-top:6px;font-size:13px;color:var(--muted)}
+    .sidebar{padding-bottom:70px}
+    .main{padding-bottom:90px}
   </style>
 </head>
 <body>
@@ -61,13 +71,13 @@
       <a href="#receive" data-page="receive"><i class="fa-solid fa-truck-ramp-box"></i><span>รับเข้า</span></a>
       <a href="#issue" data-page="issue"><i class="fa-solid fa-dolly"></i><span>เบิกจ่าย</span></a>
       <a href="#return" data-page="return"><i class="fa-solid fa-rotate-left"></i><span>รับคืน</span></a>
-      <a href="#damage" data-page="damage"><i class="fa-solid fa-triangle-exclamation"></i><span>แจ้งชำรุด</span></a>
+      <a href="#damage" data-page="damage" class="locked" data-locked="แจ้งชำรุด"><i class="fa-solid fa-triangle-exclamation"></i><span>แจ้งชำรุด 🔒</span></a>
       <a href="#repair" data-page="repair"><i class="fa-solid fa-screwdriver-wrench"></i><span>งานซ่อม</span><b class="badge" id="repairBadge"></b></a>
       <div class="nav-label">รายงาน</div>
       <a href="#stock" data-page="stock"><i class="fa-solid fa-boxes-stacked"></i><span>คงเหลือ</span></a>
       <a href="#history" data-page="history"><i class="fa-solid fa-right-left"></i><span>ประวัติเคลื่อนไหว</span></a>
       <a href="#logs" data-page="logs"><i class="fa-solid fa-clipboard-list"></i><span>บันทึกประวัติ (Log)</span></a>
-      <a href="#settings" data-page="settings"><i class="fa-solid fa-sitemap"></i><span>ตั้งค่าฝ่าย</span></a>
+      <a href="#settings" data-page="settings" class="locked" data-locked="ตั้งค่าฝ่าย"><i class="fa-solid fa-sitemap"></i><span>ตั้งค่าฝ่าย 🔒</span></a>
     </nav>
     <div class="side-foot">
       <div class="legend-mini">
@@ -80,7 +90,7 @@
 
   <main class="main">
     <div class="demo-banner" id="demoBanner" role="note">
-      <div class="db-main"><b>🧪 ระบบทดลองใช้ (Demo)</b> — ข้อมูลทั้งหมดจะถูกรีเซ็ตกลับเป็นค่าเริ่มต้นทุก 3 วัน · รีเซ็ตครั้งถัดไป: <span id="demoNext">—</span></div>
+      <div class="db-main"><b>🧪 ระบบทดลองใช้ (Demo)</b> — ข้อมูลส่วนกลางรีเซ็ตกลับเป็นค่าเริ่มต้นทุก 5 ชั่วโมง · รีเซ็ตครั้งถัดไป: <span id="demoNext">—</span> · ผู้ทดลองแต่ละคนใช้งานได้ 5 ชั่วโมง · เมนูที่มี 🔒 มีในเวอร์ชันเต็ม</div>
       <div class="db-contact" id="demoContact"></div>
     </div>
     <header class="topbar">
@@ -106,7 +116,9 @@
 
   <!-- defer: same order (Chart.js -> config -> app), run once the page is parsed -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
-  <script src="config.js?v=demo1" defer></script>
-  <script src="assets/app.js?v=25" defer></script>
+  <script src="config.js?v=demo2" defer></script>
+  <!-- DEMO: 5-hour trial per visitor (IP + device) — shared Trial Gate client, after config.js -->
+  <script src="assets/trial-gate.js?v=1" defer></script>
+  <script src="assets/app.js?v=26" defer></script>
 </body>
 </html>

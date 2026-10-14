@@ -5,7 +5,8 @@
  * Owner setup: run setupDemo() once (see Demo.gs) instead of setupSystem().
  * Demo differences: reset_data restores the demo seed (not empty sheets),
  * Teams notifications are no-ops (a log line only), the wrong-password
- * lockout is short, and bootstrap / demo_info return the auto-reset schedule.
+ * lockout is short, bootstrap / demo_info return the auto-reset schedule, and
+ * the full-version-only actions are refused (assertDemoUnlocked_, Demo.gs).
  *
  * Setup (once): run setupSystem() from the Apps Script editor. It creates the
  * "Pallet Hub Database" spreadsheet (one sheet per table, header row on top),
@@ -193,6 +194,7 @@ function doGet(e) {
   var action = String(params.action || "");
   try {
     if (!action) return jsonResponse_({ ok: true, data: { service: "Pallet Hub API" } });
+    assertDemoUnlocked_(action, params); // DEMO: full-version features are locked
     if (POST_ONLY_ACTIONS.indexOf(action) !== -1) throw new Error("คำสั่งนี้ต้องส่งแบบ POST");
     if (READ_ACTIONS.indexOf(action) === -1) fail_("Unknown action");
     resetRequest_("");
@@ -214,6 +216,7 @@ function doPost(e) {
 
   var reads = null;
   try {
+    assertDemoUnlocked_(action, payload); // DEMO: full-version features are locked
     if (action === "verifyResetPassword") {
       return jsonResponse_({ ok: true, data: verifyResetPassword(payload.resetPassword) });
     }

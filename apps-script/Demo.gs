@@ -4,12 +4,17 @@
  * Owner setup (once, from the Apps Script editor):
  *   setupDemo()      creates the "Pallet Hub Demo Database" spreadsheet (via
  *                    setupSystem), sets the public demo password, writes the
- *                    sample data, stores DEMO_LAST_RESET and installs ONE daily
+ *                    sample data, stores DEMO_LAST_RESET and installs ONE hourly
  *                    trigger that runs demoAutoReset().
  * Afterwards:
- *   demoAutoReset()  (trigger, daily ~07:00) re-seeds when >= 3 days have passed
- *                    since DEMO_LAST_RESET.
+ *   demoAutoReset()  (trigger, every hour) re-seeds when >= DEMO_RESET_HOURS (5)
+ *                    hours have passed since DEMO_LAST_RESET.
  *   resetDemoNow()   manual reset to the sample data at any time.
+ *
+ * Slim demo: the "premium" actions in DEMO_LOCKED_ACTIONS (and a return in
+ * damaged condition) are refused by the API with DEMO_LOCKED_MESSAGE, so they
+ * cannot be called directly either. Only the owner's editor functions above
+ * (and the seed) still use them.
  *
  * The sample data is the plain list DEMO_SEED_PLAN below. Every entry is
  * written through the normal business functions (actionReceive_, actionIssue_,
@@ -21,9 +26,8 @@
 
 var DEMO_LAST_RESET_PROPERTY = "DEMO_LAST_RESET";
 var DEMO_ADMIN_PASSWORD = "demo1234";      // public: shown on the page and in README_DEMO.txt
-var DEMO_RESET_DAYS = 3;
-var DEMO_RESET_HOUR = 7;                    // trigger hour (Asia/Bangkok, from appsscript.json)
-var DEMO_RESET_TOLERANCE_HOURS = 6;         // the daily trigger drifts within its hour
+var DEMO_RESET_HOURS = 5;                    // shared data is re-seeded every 5 hours
+var DEMO_TRIGGER_EVERY_HOURS = 1;           // demoAutoReset runs hourly (resets 5-6 h apart)
 var DEMO_TRIGGER_HANDLER = "demoAutoReset";
 var DEMO_SYSTEM_ACTOR = "ระบบทดลอง (Demo)";
 var DEMO_COMPANY = "บริษัท ตัวอย่าง อินดัสทรี จำกัด (Demo Co., Ltd.)";
@@ -32,6 +36,18 @@ var DEMO_COMPANY = "บริษัท ตัวอย่าง อินดั�
 // sample data. The engine regression tests (test/gas-mock.js) switch it off to
 // exercise the original empty reset; the demo tests switch it back on.
 var DEMO_RESET_RESTORES_SEED = true;
+
+// Slim demo: these API actions belong to the full version only. true in the
+// deployed demo; the engine regression tests switch it off to exercise them.
+var DEMO_LOCK_PREMIUM = true;
+var DEMO_LOCKED_MESSAGE = "ฟีเจอร์นี้มีในเวอร์ชันเต็ม";
+var DEMO_LOCKED_ACTIONS = [
+  "damage", "repair_start", "repair_done", "scrap",                       // แจ้งชำรุด / งานซ่อม / ตัดจำหน่าย
+  "movement_update", "movement_delete", "repair_update", "repair_delete", // แก้ไข / ลบรายการย้อนหลัง
+  "dept_save", "dept_delete",                                             // ตั้งค่าฝ่าย
+  "reset_data",                                                           // ปุ่มรีเซ็ตข้อมูล
+  "export", "logs_export"                                                 // ส่งออก Excel (ประวัติ / Log)
+];
 
 // "now" override used only while the seed is written (see nowParts_ in Code.gs).
 var DEMO_NOW_MS_ = null;
@@ -133,7 +149,7 @@ var DEMO_SEED_PLAN = [
 
 /* ===================== owner functions (run from the editor) ===================== */
 
-/** Run ONCE after pasting the files: spreadsheet + password + sample data + daily trigger. */
+/** Run ONCE after pasting the files: spreadsheet + password + sample data + hourly trigger. */
 function setupDemo() {
   var setup = setupSystem();
   var props = PropertiesService.getScriptProperties();
@@ -153,7 +169,7 @@ function setupDemo() {
   return result;
 }
 
-/** Daily trigger: re-seeds when DEMO_RESET_DAYS have passed since DEMO_LAST_RESET. */
+/** Hourly trigger: re-seeds when DEMO_RESET_HOURS have passed since DEMO_LAST_RESET. */
 function demoAutoReset() {
   var last = Date.parse(PropertiesService.getScriptProperties().getProperty(DEMO_LAST_RESET_PROPERTY) || "");
   var due = isNaN(last) ? 0 : demoDueMs_(last);
@@ -299,43 +315,53 @@ function demoSeedTimes_(baseMs) {
   return list.sort(function (a, b) { return a.ms - b.ms || a.i - b.i; });
 }
 
+/* ===================== slim demo: locked (full version) features ===================== */
+
+// true when the API must refuse this action in the demo (see DEMO_LOCKED_ACTIONS).
+function demoLockedAction_(action, input) {
+  if (!DEMO_LOCK_PREMIUM) return false;
+  if (DEMO_LOCKED_ACTIONS.indexOf(action) !== -1) return true;
+  // รับคืนสภาพชำรุด opens a repair ticket (the repair workflow is full version only)
+  return action === "return" && !!input && input.condition === "damaged";
+}
+
+// Called first by doGet / doPost: {ok:false, error: DEMO_LOCKED_MESSAGE, code: "DEMO_LOCKED"}.
+function assertDemoUnlocked_(action, input) {
+  if (demoLockedAction_(action, input)) fail_(DEMO_LOCKED_MESSAGE, "DEMO_LOCKED");
+}
+
 /* ===================== schedule ===================== */
 
 function markDemoReset_() {
   PropertiesService.getScriptProperties().setProperty(DEMO_LAST_RESET_PROPERTY, new Date(Date.now()).toISOString());
 }
 
-// Earliest moment the daily trigger may re-seed after a reset at lastMs.
+// Moment the data is due for a re-seed after a reset at lastMs (the hourly
+// trigger run at or after it does the reset, i.e. 5-6 hours after lastMs).
 function demoDueMs_(lastMs) {
-  return lastMs + DEMO_RESET_DAYS * 86400000 - DEMO_RESET_TOLERANCE_HOURS * 3600000;
+  return lastMs + DEMO_RESET_HOURS * 3600000;
 }
 
-// { lastReset, nextReset (ISO, the trigger hour of the day the reset is due), ... }
+// { lastReset, nextReset (ISO, lastReset + DEMO_RESET_HOURS), intervalHours, ... }
 function demoInfo_() {
   var raw = "";
   try { raw = PropertiesService.getScriptProperties().getProperty(DEMO_LAST_RESET_PROPERTY) || ""; } catch (ignored) {}
   var last = Date.parse(raw);
-  var next = null;
-  if (!isNaN(last)) {
-    var day = 86400000;
-    var off = DEMO_RESET_HOUR * 3600000 - TZ_OFFSET_MS; // trigger hour in UTC ms of the day
-    next = new Date(Math.ceil((demoDueMs_(last) - off) / day) * day + off).toISOString();
-  }
   return {
     demo: true,
     company: DEMO_COMPANY,
-    intervalDays: DEMO_RESET_DAYS,
+    intervalHours: DEMO_RESET_HOURS,
     lastReset: isNaN(last) ? null : new Date(last).toISOString(),
-    nextReset: next
+    nextReset: isNaN(last) ? null : new Date(demoDueMs_(last)).toISOString()
   };
 }
 
-// Exactly one daily trigger for demoAutoReset (older ones for it are removed).
+// Exactly one hourly trigger for demoAutoReset (older ones for it are removed).
 function installDemoTrigger_() {
   var removed = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === DEMO_TRIGGER_HANDLER) { ScriptApp.deleteTrigger(t); removed++; }
   });
-  ScriptApp.newTrigger(DEMO_TRIGGER_HANDLER).timeBased().everyDays(1).atHour(DEMO_RESET_HOUR).create();
-  return { handler: DEMO_TRIGGER_HANDLER, everyDays: 1, atHour: DEMO_RESET_HOUR, removedOld: removed };
+  ScriptApp.newTrigger(DEMO_TRIGGER_HANDLER).timeBased().everyHours(DEMO_TRIGGER_EVERY_HOURS).create();
+  return { handler: DEMO_TRIGGER_HANDLER, everyHours: DEMO_TRIGGER_EVERY_HOURS, removedOld: removed };
 }

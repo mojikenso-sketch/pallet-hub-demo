@@ -191,7 +191,29 @@ setInterval(paintDemo, 30000); paintDemo();
 /* กล่อง "บัญชีทดลอง" ในหน้าต่างระบุชื่อผู้ใช้ / ใส่รหัส */
 const demoAccBox = () => `<div class="demo-acc"><b><i class="fa-solid fa-flask"></i> บัญชีทดลอง</b><br>
   ชื่อผู้ใช้งาน: พิมพ์ชื่อใดก็ได้ เช่น <code>ผู้ทดลองระบบ</code><br>
-  รหัสผู้ดูแล (แก้ไข/ลบรายการ · Log · ตั้งค่าฝ่าย · รีเซ็ตข้อมูล): <code>${DEMO_PASSWORD}</code></div>`;
+  รหัสผู้ดูแล (ดูบันทึกประวัติ Log): <code>${DEMO_PASSWORD}</code><br>
+  <small>🔒 แก้ไข/ลบรายการ · ตั้งค่าฝ่าย · รีเซ็ตข้อมูล มีในเวอร์ชันเต็ม</small></div>`;
+
+/* ================= DEMO: ฟีเจอร์เวอร์ชันเต็ม (🔒) =================
+   ปุ่ม/เมนูที่มี data-locked="ชื่อฟีเจอร์" ยังแสดงอยู่ แต่กดแล้วขึ้นหน้าต่าง "มีในเวอร์ชันเต็ม" แทน
+   (ดักครั้งเดียวที่ document ช่วง capture — handler เดิมของปุ่มจึงไม่ทำงาน) · เซิร์ฟเวอร์ปฏิเสธ action เหล่านี้เช่นกัน */
+const LOCKED_MSG = 'ฟีเจอร์นี้มีในเวอร์ชันเต็ม';
+const LOCKED_PAGES = { damage: 'แจ้งชำรุด', settings: 'ตั้งค่าฝ่าย' };
+const lockAttr = name => `data-locked="${esc(name)}"`;
+function showLocked(name) {
+  const price = (window.DEMO_TRIAL || {}).priceHtml;
+  modal(`<div class="lock-card"><div class="lk-big">🔒</div>
+    <h3>${esc(name || 'ฟีเจอร์เวอร์ชันเต็ม')}</h3>
+    <p style="color:var(--muted)">🔒 ${LOCKED_MSG} — ${esc(DEMO_CONTACT)}</p>
+    ${price ? `<div class="lk-price">${esc(price)}</div>` : ''}
+    <div class="modal-acts" style="justify-content:center"><button class="btn btn-primary" data-close><i class="fa-solid fa-check"></i>ตกลง</button></div></div>`);
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-locked]');
+  if (!el) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  showLocked(el.dataset.locked);
+}, true);
 
 /* ---------- อ่านหลายรายการในคำขอเดียว (batch) ----------
    reads = [[action, '&k=v...'], ...] — เซิร์ฟเวอร์ตอบผลของทุกรายการในครั้งเดียว (ลดการรอ Apps Script ทีละรอบ)
@@ -439,6 +461,7 @@ const NAME_PAGES = ['receive', 'issue', 'return', 'damage', 'repair'];
 const INPUT_PAGES = ['receive', 'issue', 'return', 'damage', 'history', 'settings'];
 async function route() {
   const p = currentPage();
+  if (LOCKED_PAGES[p]) { location.hash = 'dashboard'; showLocked(LOCKED_PAGES[p]); return; } // DEMO: เวอร์ชันเต็ม
   if (PW_PAGES.includes(p)) {
     try { await askPassword('record'); }
     catch (e) { toast(e.message, 'err'); if (currentPage() === p) location.hash = 'dashboard'; return; }
@@ -514,7 +537,7 @@ async function dashboard(d) {
   const conn = (a, label, label2, b) => `<div class="fconn"><small>${label}</small><div class="ln" style="--a:${a}"></div>${label2 ? `<div class="ln rev" style="--a:${b}"></div><small>${label2}</small>` : ''}</div>`;
 
   view.innerHTML = `
-  <div class="reset-topbar"><button class="btn btn-bad" id="resetBtn">🗑 รีเซ็ตข้อมูล / Reset data</button></div>
+  <div class="reset-topbar"><button class="btn btn-bad locked" id="resetBtn" ${lockAttr('รีเซ็ตข้อมูล / Reset data')}>🗑 รีเซ็ตข้อมูล / Reset data 🔒</button></div>
   <div class="hero">
     <div class="leafs">${[12, 30, 48, 66, 84].map((l, i) => `<i class="fa-solid fa-leaf" style="left:${l}%;bottom:-20px;font-size:${18 + i * 6}px;animation-delay:${-i * 2.6}s"></i>`).join('')}</div>
     <div class="greet"><i class="fa-solid ${greet[1]}"></i>${greet[0]}${S.user ? ' คุณ' + esc(S.user) : ''} · ${new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
@@ -714,7 +737,7 @@ async function logs() {
         <div class="field"><label>ถึงวันที่</label><input type="date" id="lTo" value="${n.date}"></div>
         <div class="field" style="flex:1;min-width:220px"><label>ค้นหา</label><input id="lQ" placeholder="เลขที่เอกสาร / ผู้ทำรายการ / ชื่อผู้ใช้ / ฝ่าย / รายละเอียด"></div>
         <button class="btn btn-primary" id="lGo"><i class="fa-solid fa-magnifying-glass"></i>ค้นหา</button>
-        <button class="btn btn-ok" id="lCsv"><i class="fa-solid fa-file-excel"></i>Excel</button>
+        <button class="btn btn-ok locked" id="lCsv" ${lockAttr('ส่งออก Excel (Log)')}><i class="fa-solid fa-file-excel"></i>Excel 🔒</button>
       </div>
       <div id="lRes"><div class="spinner"></div></div>
     </div>`;
@@ -791,7 +814,7 @@ function txForm(kind) {
       </div>
       ${kind === 'return' ? `<div class="step"><div class="step-h"><span class="n">5</span>สภาพพาเลทที่คืน</div>
         <div class="cond"><button class="chip sel" data-cond="good" style="--c:#12b76a"><i class="fa-solid fa-circle-check"></i>สภาพดี → พร้อมใช้</button>
-        <button class="chip" data-cond="damaged" style="--c:#f04438"><i class="fa-solid fa-heart-crack"></i>ชำรุด → ส่งซ่อม</button></div></div>` : ''}
+        <button class="chip locked" data-cond="damaged" ${lockAttr('รับคืนสภาพชำรุด (เปิดงานซ่อม)')} style="--c:#f04438"><i class="fa-solid fa-heart-crack"></i>ชำรุด → ส่งซ่อม 🔒</button></div></div>` : ''}
       <div class="step"><div class="step-h"><span class="n"><i class="fa-solid fa-pen" style="font-size:12px"></i></span>รายละเอียด</div>
         <div class="fields">
           <div class="field"><label><i class="fa-regular fa-calendar"></i> วันที่</label><input type="date" id="fDate" value="${f.date}"></div>
@@ -911,8 +934,8 @@ async function repair({ items }) {
   ];
   view.innerHTML = `
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <a href="#damage" class="btn btn-bad"><i class="fa-solid fa-triangle-exclamation"></i>แจ้งชำรุดจากคลัง</a>
-      <a href="#return" class="btn btn-ghost"><i class="fa-solid fa-rotate-left"></i>รับคืนสภาพชำรุดจากฝ่าย</a>
+      <a href="#damage" class="btn btn-bad locked" ${lockAttr('แจ้งชำรุด')}><i class="fa-solid fa-triangle-exclamation"></i>แจ้งชำรุดจากคลัง 🔒</a>
+      <a href="#return" class="btn btn-ghost locked" ${lockAttr('รับคืนสภาพชำรุด (เปิดงานซ่อม)')}><i class="fa-solid fa-rotate-left"></i>รับคืนสภาพชำรุดจากฝ่าย 🔒</a>
     </div>
     <div class="kanban">${cols.map(([k, n, ic, cls, list]) => `
       <div class="col ${cls}"><div class="col-h"><span class="ci"><i class="fa-solid ${ic}"></i></span>${n}<span class="cnt">${fmt(list.reduce((a, i) => a + +i.qty, 0))} ตัว</span></div>
@@ -940,13 +963,13 @@ function repairCard(r, i) {
     ${r.finished_at ? `<div class="tc"><i class="fa-solid fa-flag-checkered"></i> ${r.stage === 'scrapped' ? 'ตัดจำหน่าย' : 'ซ่อมเสร็จ'} ${dtTH(r.finished_at)}</div>` : ''}
     ${r.updated_by ? `<div class="tc"><i class="fa-solid fa-user-check"></i> อัปเดตล่าสุดโดย ${esc(r.updated_by)}</div>` : ''}
     <div class="acts">
-      ${r.stage === 'damaged' ? `<button class="btn btn-sm btn-fix" data-rp="repair_start" data-id="${r.id}"><i class="fa-solid fa-screwdriver-wrench"></i>ส่งซ่อม</button>` : ''}
-      ${r.stage === 'repairing' ? `<button class="btn btn-sm btn-ok" data-rp="repair_done" data-id="${r.id}"><i class="fa-solid fa-circle-check"></i>ซ่อมเสร็จ</button>` : ''}
-      ${r.stage === 'damaged' || r.stage === 'repairing' ? `<button class="btn btn-sm btn-ghost" data-rp="scrap" data-id="${r.id}"><i class="fa-solid fa-trash-can"></i>ซ่อมไม่ได้</button>` : ''}
+      ${r.stage === 'damaged' ? `<button class="btn btn-sm btn-fix locked" data-rp="repair_start" data-id="${r.id}" ${lockAttr('ส่งซ่อม (งานซ่อม)')}><i class="fa-solid fa-screwdriver-wrench"></i>ส่งซ่อม 🔒</button>` : ''}
+      ${r.stage === 'repairing' ? `<button class="btn btn-sm btn-ok locked" data-rp="repair_done" data-id="${r.id}" ${lockAttr('ซ่อมเสร็จ (งานซ่อม)')}><i class="fa-solid fa-circle-check"></i>ซ่อมเสร็จ 🔒</button>` : ''}
+      ${r.stage === 'damaged' || r.stage === 'repairing' ? `<button class="btn btn-sm btn-ghost locked" data-rp="scrap" data-id="${r.id}" ${lockAttr('ตัดจำหน่าย')}><i class="fa-solid fa-trash-can"></i>ซ่อมไม่ได้ 🔒</button>` : ''}
       ${r.stage === 'done' ? `<span class="tag" style="--c:#12b76a"><i class="fa-solid fa-circle-check"></i>กลับเข้าคลังพร้อมใช้</span>` : ''}
       ${r.stage === 'scrapped' ? `<span class="tag" style="--c:#667085"><i class="fa-solid fa-trash-can"></i>ตัดจำหน่ายแล้ว</span>` : ''}
     </div>
-    <div class="acts rec-acts"><button class="btn btn-sm btn-ghost rec-btn" data-redit="${r.id}" title="แก้ไขใบแจ้งซ่อม">✏️ แก้ไข</button><button class="btn btn-sm btn-ghost rec-btn" data-rdel="${r.id}" title="ลบใบแจ้งซ่อมทั้งชุด">🗑 ลบ</button></div></div>`;
+    <div class="acts rec-acts"><button class="btn btn-sm btn-ghost rec-btn locked" data-redit="${r.id}" ${lockAttr('แก้ไขใบแจ้งซ่อม')} title="แก้ไขใบแจ้งซ่อม">✏️ แก้ไข 🔒</button><button class="btn btn-sm btn-ghost rec-btn locked" data-rdel="${r.id}" ${lockAttr('ลบใบแจ้งซ่อม')} title="ลบใบแจ้งซ่อมทั้งชุด">🗑 ลบ 🔒</button></div></div>`;
 }
 function repairAction(r, act) {
   const meta = {
@@ -1064,7 +1087,7 @@ async function history(initial) {
       <div class="field"><label>ฝ่าย</label><select id="hDept"><option value="">ทั้งหมด</option>${S.depts.map(d => `<option>${esc(d.name)}</option>`).join('')}</select></div>
       <div class="field"><label>ค้นหา</label><input id="hQ" placeholder="เลขที่ / ผู้ทำรายการ / ชื่อ / หมายเหตุ"></div>
       <button class="btn btn-primary" id="hGo"><i class="fa-solid fa-magnifying-glass"></i>ค้นหา</button>
-      <button class="btn btn-ok" id="hCsv"><i class="fa-solid fa-file-excel"></i>Excel</button>
+      <button class="btn btn-ok locked" id="hCsv" ${lockAttr('ส่งออก Excel')}><i class="fa-solid fa-file-excel"></i>Excel 🔒</button>
     </div>
     <div id="hRes"><div class="spinner"></div></div></div>`;
   const params = () => '&' + new URLSearchParams({ from: $('#hFrom').value, to: $('#hTo').value, type: $('#hType').value, act: $('#hAct').value, dept: $('#hDept').value, q: $('#hQ').value });
@@ -1080,7 +1103,7 @@ async function history(initial) {
         <td style="font-size:12.5px">${m.from_status ? STATUS[m.from_status].name : 'ภายนอก'} <i class="fa-solid fa-arrow-right" style="color:var(--muted);font-size:10px"></i> <b style="color:${STATUS[m.to_status]?.c}">${STATUS[m.to_status]?.name || ''}</b></td>
         <td>${esc(m.department || '—')}</td>
         <td class="by-cell">${m.actor ? `<i class="fa-solid fa-user-check" style="color:var(--ok)"></i> ${esc(m.actor)}` : '<span class="legacy">ไม่ระบุ</span>'}</td><td>${esc(m.person || '—')}</td><td style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${esc(m.note || '')}</td>
-        <td><div class="rec-acts"><button class="btn btn-sm btn-ghost rec-btn" data-medit="${m.id}" title="แก้ไขรายการ">✏️ แก้ไข</button><button class="btn btn-sm btn-ghost rec-btn" data-mdel="${m.id}" title="${m.repair_id ? 'ลบทั้งชุดงานซ่อม' : 'ลบรายการ'}">🗑 ลบ</button></div></td></tr>`).join('')}
+        <td><div class="rec-acts"><button class="btn btn-sm btn-ghost rec-btn locked" data-medit="${m.id}" ${lockAttr('แก้ไขรายการย้อนหลัง')} title="แก้ไขรายการ">✏️ แก้ไข 🔒</button><button class="btn btn-sm btn-ghost rec-btn locked" data-mdel="${m.id}" ${lockAttr('ลบรายการ')} title="${m.repair_id ? 'ลบทั้งชุดงานซ่อม' : 'ลบรายการ'}">🗑 ลบ 🔒</button></div></td></tr>`).join('')}
       </tbody></table></div>` : '<div class="empty"><i class="fa-solid fa-magnifying-glass"></i>ไม่พบรายการตามเงื่อนไข</div>';
   };
   const load = async () => {
